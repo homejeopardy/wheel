@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contestant Buzzer Device</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;900&display=swap" rel="stylesheet">
     
-    <script src="https://cdn.jsdelivr.net/npm/p2pt@1.2.1/dist/p2pt.umd.min.js"></script>
+    <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
     <style>
         * { box-sizing: border-box; }
@@ -15,6 +16,7 @@
             font-family: 'Poppins', sans-serif; background: #0f172a; color: white;
             margin: 0; padding: 20px; height: 100vh; width: 100vw; 
             display: flex; flex-direction: column; justify-content: center; align-items: center; 
+            overflow: hidden;
         }
         .card { 
             background: #1e293b; border: 2px solid #334155; padding: 30px; 
@@ -31,7 +33,7 @@
             padding: 14px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; 
         }
         #huge-buzzer-button { 
-            width: 75vw; height: 75vw; max-width: 350px; max-height: 350px; border-radius: 50%; 
+            width: 75vw; height: 75vw; max-width: 320px; max-height: 320px; border-radius: 50%; 
             background: radial-gradient(circle at 35% 35%, #ef4444 0%, #b91c1c 70%, #7f1d1d 100%); 
             border: 10px solid #334155; box-shadow: 0 15px 30px rgba(0,0,0,0.5), inset 0 -10px 20px rgba(0,0,0,0.4); 
             color: white; font-size: 32px; font-weight: 900; letter-spacing: 2px; cursor: pointer; 
@@ -39,7 +41,7 @@
         }
         #huge-buzzer-button:active { transform: scale(0.96); }
         #huge-buzzer-button:disabled { background: #475569 !important; border-color: #1e293b; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
-        #status-msg { margin-top: 25px; font-size: 18px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; text-align: center; color: #94a3b8; }
+        #status-msg { margin-top: 25px; font-size: 18px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; text-align: center; color: #eab308; }
     </style>
 </head>
 <body>
@@ -51,17 +53,11 @@
     </div>
 
     <button id="huge-buzzer-button" onclick="sendBuzz()">BUZZ</button>
-    <div id="status-msg">Connecting to network...</div>
+    <div id="status-msg">Connecting to cloud...</div>
 
 <script>
-    // MUST MATCH THE ROOM ID IN YOUR VS CODE FILES EXACTLY
-    const ROOM_ID = 'WOF_TRIVIA_SHARED_ROOM_2026'; 
-    
-    const p2p = new P2PT([
-        'wss://tracker.openwebtorrent.com',
-        'wss://tracker.btorrent.xyz',
-        'wss://tracker.fastcast.nz'
-    ], ROOM_ID);
+    // Paste your key inside the quotes below
+    const ABLY_KEY = 'xce0Cw.Eoo7iw:xAShOONuPh-Va8sqYq2bPYKr88ihyEXUzEQJDi3Ot1Q';
 
     const urlParams = new URLSearchParams(window.location.search);
     const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
@@ -69,15 +65,12 @@
     let myName = "";
     let registered = false;
 
-    p2p.start();
-    
-    p2p.on('trackerconnect', () => {
+    const ably = new Ably.Realtime(ABLY_KEY);
+    const channel = ably.channels.get('wheel-of-fortune-room');
+
+    ably.connection.on('connected', () => {
         if(!registered) document.getElementById('status-msg').innerText = "Enter a name to begin";
     });
-
-    function broadcast(msg) {
-        p2p.getPeers().forEach(peer => p2p.send(peer, JSON.stringify(msg)));
-    }
 
     function joinGameSession() {
         const nameInput = document.getElementById('player-name').value.trim();
@@ -90,33 +83,31 @@
         document.getElementById('huge-buzzer-button').style.display = "block";
         document.getElementById('status-msg').innerText = "Buzzer Armed";
         
-        broadcast({ type: 'CONTESTANT_JOINED', id: playerId, name: myName });
+        channel.publish('game-event', { type: 'CONTESTANT_JOINED', id: playerId, name: myName });
     }
 
     function sendBuzz() {
-        broadcast({ type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
+        channel.publish('game-event', { type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
     }
 
-    p2p.on('data', (peer, data) => {
+    channel.subscribe('game-event', (message) => {
         if (!registered) return;
-        try {
-            const msg = JSON.parse(data);
-            const btn = document.getElementById('huge-buzzer-button');
-            const lbl = document.getElementById('status-msg');
+        const msg = message.data;
+        const btn = document.getElementById('huge-buzzer-button');
+        const lbl = document.getElementById('status-msg');
 
-            if (msg.type === 'BUZZERS_ARMED') {
-                if (msg.hasBuzzedList.includes(playerId)) {
-                    btn.disabled = true; lbl.innerText = "LOCKED OUT";
-                } else {
-                    btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
-                }
+        if (msg.type === 'BUZZERS_ARMED') {
+            if (msg.hasBuzzedList.includes(playerId)) {
+                btn.disabled = true; lbl.innerText = "LOCKED OUT"; lbl.style.color = "#ef4444";
+            } else {
+                btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
             }
-            if (msg.type === 'BUZZERS_FROZEN') {
-                btn.disabled = true;
-                lbl.style.color = "#94a3b8";
-                lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
-            }
-        } catch(e) {}
+        }
+        if (msg.type === 'BUZZERS_FROZEN') {
+            btn.disabled = true;
+            lbl.style.color = "#94a3b8";
+            lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
+        }
     });
 </script>
 </body>
