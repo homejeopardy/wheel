@@ -56,59 +56,67 @@
     <div id="status-msg">Connecting to cloud...</div>
 
 <script>
-    // Paste your key inside the quotes below
-    const ABLY_KEY = 'xce0Cw.Eoo7iw:xAShOONuPh-Va8sqYq2bPYKr88ihyEXUzEQJDi3Ot1Q';
+    // Paste your NEW Ably key here once regenerated
+const ABLY_KEY = 'xce0Cw.Eoo7iw:xAShOONuPh-Va8sqYq2bPYKr88ihyEXUzEQJDi3Ot1Q';
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
+const urlParams = new URLSearchParams(window.location.search);
+const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
+
+let myName = "";
+let registered = false;
+
+// Upgraded connection options for public devices
+const ably = new Ably.Realtime({ key: ABLY_KEY, clientId: `player-${playerId}` });
+const channel = ably.channels.get('wheel-of-fortune-room');
+
+ably.connection.on('connected', () => {
+    if(!registered) document.getElementById('status-msg').innerText = "Enter a name to begin";
+});
+
+function joinGameSession() {
+    const nameInput = document.getElementById('player-name').value.trim();
+    if (!nameInput) return;
     
-    let myName = "";
-    let registered = false;
+    myName = nameInput;
+    registered = true;
+    
+    document.getElementById('reg-box').style.display = "none";
+    document.getElementById('huge-buzzer-button').style.display = "block";
+    document.getElementById('status-msg').innerText = "Buzzer Armed";
+    
+    // Send registration
+    channel.publish('game-event', { type: 'CONTESTANT_JOINED', id: playerId, name: myName });
+}
 
-    const ably = new Ably.Realtime(ABLY_KEY);
-    const channel = ably.channels.get('wheel-of-fortune-room');
+function sendBuzz() {
+    channel.publish('game-event', { type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
+}
 
-    ably.connection.on('connected', () => {
-        if(!registered) document.getElementById('status-msg').innerText = "Enter a name to begin";
-    });
-
-    function joinGameSession() {
-        const nameInput = document.getElementById('player-name').value.trim();
-        if (!nameInput) return;
-        
-        myName = nameInput;
-        registered = true;
-        
-        document.getElementById('reg-box').style.display = "none";
-        document.getElementById('huge-buzzer-button').style.display = "block";
-        document.getElementById('status-msg').innerText = "Buzzer Armed";
-        
+// Listen for Host pings so phones can re-transmit names if the host reloads
+channel.subscribe('game-event', (message) => {
+    const msg = message.data;
+    
+    if (msg.type === 'PING_FOR_PLAYERS' && registered) {
         channel.publish('game-event', { type: 'CONTESTANT_JOINED', id: playerId, name: myName });
     }
 
-    function sendBuzz() {
-        channel.publish('game-event', { type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
+    if (!registered) return;
+    const btn = document.getElementById('huge-buzzer-button');
+    const lbl = document.getElementById('status-msg');
+
+    if (msg.type === 'BUZZERS_ARMED') {
+        if (msg.hasBuzzedList.includes(playerId)) {
+            btn.disabled = true; lbl.innerText = "LOCKED OUT"; lbl.style.color = "#ef4444";
+        } else {
+            btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
+        }
     }
-
-    channel.subscribe('game-event', (message) => {
-        if (!registered) return;
-        const msg = message.data;
-        const btn = document.getElementById('huge-buzzer-button');
-        const lbl = document.getElementById('status-msg');
-
-        if (msg.type === 'BUZZERS_ARMED') {
-            if (msg.hasBuzzedList.includes(playerId)) {
-                btn.disabled = true; lbl.innerText = "LOCKED OUT"; lbl.style.color = "#ef4444";
-            } else {
-                btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
-            }
-        }
-        if (msg.type === 'BUZZERS_FROZEN') {
-            btn.disabled = true;
-            lbl.style.color = "#94a3b8";
-            lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
-        }
-    });
+    if (msg.type === 'BUZZERS_FROZEN') {
+        btn.disabled = true;
+        lbl.style.color = "#94a3b8";
+        lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
+    }
+});
 </script>
 </body>
 </html>
