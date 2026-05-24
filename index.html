@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Contestant Buzzer Device</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/p2pt@1.2.1/dist/p2pt.umd.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Poppins', sans-serif; background: #0f172a; color: white;
+            margin: 0; padding: 20px; height: 100vh; width: 100vw; 
+            display: flex; flex-direction: column; justify-content: center; align-items: center; 
+        }
+        .card { 
+            background: #1e293b; border: 2px solid #334155; padding: 30px; 
+            border-radius: 12px; width: 100%; max-width: 400px; text-align: center; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+        h2 { margin: 0 0 20px 0; font-size: 24px; color: #38bdf8; text-transform: uppercase; }
+        input { 
+            width: 100%; padding: 14px; border-radius: 8px; border: 2px solid #475569; 
+            background: #0f172a; color: white; font-size: 18px; text-align: center; margin-bottom: 20px; 
+        }
+        .join-btn { 
+            width: 100%; background: #16a34a; color: white; border: none; 
+            padding: 14px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; 
+        }
+        #huge-buzzer-button { 
+            width: 75vw; height: 75vw; max-width: 350px; max-height: 350px; border-radius: 50%; 
+            background: radial-gradient(circle at 35% 35%, #ef4444 0%, #b91c1c 70%, #7f1d1d 100%); 
+            border: 10px solid #334155; box-shadow: 0 15px 30px rgba(0,0,0,0.5), inset 0 -10px 20px rgba(0,0,0,0.4); 
+            color: white; font-size: 32px; font-weight: 900; letter-spacing: 2px; cursor: pointer; 
+            display: none; outline: none; transition: transform 0.1s;
+        }
+        #huge-buzzer-button:active { transform: scale(0.96); }
+        #huge-buzzer-button:disabled { background: #475569 !important; border-color: #1e293b; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
+        #status-msg { margin-top: 25px; font-size: 18px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; text-align: center; color: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <div class="card" id="reg-box">
+        <h2>Enter Team Name</h2>
+        <input type="text" id="player-name" placeholder="Team Name..." maxlength="12">
+        <button class="join-btn" onclick="joinGameSession()">Join Game</button>
+    </div>
+
+    <button id="huge-buzzer-button" onclick="sendBuzz()">BUZZ</button>
+    <div id="status-msg">Connecting to network...</div>
+
+<script>
+    // MUST MATCH THE ROOM ID IN YOUR VS CODE FILES EXACTLY
+    const ROOM_ID = 'WOF_TRIVIA_SHARED_ROOM_2026'; 
+    
+    const p2p = new P2PT([
+        'wss://tracker.openwebtorrent.com',
+        'wss://tracker.btorrent.xyz',
+        'wss://tracker.fastcast.nz'
+    ], ROOM_ID);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
+    
+    let myName = "";
+    let registered = false;
+
+    p2p.start();
+    
+    p2p.on('trackerconnect', () => {
+        if(!registered) document.getElementById('status-msg').innerText = "Enter a name to begin";
+    });
+
+    function broadcast(msg) {
+        p2p.getPeers().forEach(peer => p2p.send(peer, JSON.stringify(msg)));
+    }
+
+    function joinGameSession() {
+        const nameInput = document.getElementById('player-name').value.trim();
+        if (!nameInput) return;
+        
+        myName = nameInput;
+        registered = true;
+        
+        document.getElementById('reg-box').style.display = "none";
+        document.getElementById('huge-buzzer-button').style.display = "block";
+        document.getElementById('status-msg').innerText = "Buzzer Armed";
+        
+        broadcast({ type: 'CONTESTANT_JOINED', id: playerId, name: myName });
+    }
+
+    function sendBuzz() {
+        broadcast({ type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
+    }
+
+    p2p.on('data', (peer, data) => {
+        if (!registered) return;
+        try {
+            const msg = JSON.parse(data);
+            const btn = document.getElementById('huge-buzzer-button');
+            const lbl = document.getElementById('status-msg');
+
+            if (msg.type === 'BUZZERS_ARMED') {
+                if (msg.hasBuzzedList.includes(playerId)) {
+                    btn.disabled = true; lbl.innerText = "LOCKED OUT";
+                } else {
+                    btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
+                }
+            }
+            if (msg.type === 'BUZZERS_FROZEN') {
+                btn.disabled = true;
+                lbl.style.color = "#94a3b8";
+                lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
+            }
+        } catch(e) {}
+    });
+</script>
+</body>
+</html>
