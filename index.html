@@ -56,86 +56,83 @@
     <div id="status-msg">Connecting to room...</div>
 
 <script>
-    // This room identifier ties all of your devices together
     const ROOM_PREFIX = "WOF_ROOM_2026_"; 
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
-    
-    let myName = "";
-    let registered = false;
-    let hostConn = null;
-    let stageConn = null;
+const urlParams = new URLSearchParams(window.location.search);
+const playerId = parseInt(urlParams.get('player')) || Math.floor(Math.random() * 1000);
 
-    // Connect to the public peer network
-    const peer = new Peer(`${ROOM_PREFIX}PLAYER_${playerId}`);
+let myName = "";
+let registered = false;
+let hostConn = null;
 
-    peer.on('open', () => {
-        document.getElementById('status-msg').innerText = "Enter a name to begin";
-        tryToConnectToSystem();
+// Generate a clean random peer ID for the client device
+const peer = new Peer(`${ROOM_PREFIX}PLAYER_${playerId}`);
+
+peer.on('open', () => {
+    document.getElementById('status-msg').innerText = "Enter a name to begin";
+    connectToHostHub();
+});
+
+function connectToHostHub() {
+    hostConn = peer.connect(`${ROOM_PREFIX}HOST`);
+    
+    hostConn.on('open', () => {
+        console.log("Connected to Control Panel Hub.");
+        // If they already typed their name and got disconnected, auto-re-register
+        if (registered && myName) {
+            hostConn.send({ type: 'CONTESTANT_JOINED', id: playerId, name: myName });
+        }
     });
 
-    function tryToConnectToSystem() {
-        // Direct link to the host dashboard
-        hostConn = peer.connect(`${ROOM_PREFIX}HOST`);
-        setupConnectionListeners(hostConn);
+    hostConn.on('data', (data) => {
+        handleIncomingMessage(data);
+    });
 
-        // Direct link to the stage display
-        stageConn = peer.connect(`${ROOM_PREFIX}STAGE`);
-        setupConnectionListeners(stageConn);
+    hostConn.on('close', () => {
+        document.getElementById('status-msg').innerText = "Lost connection. Retrying...";
+        setTimeout(connectToHostHub, 1500);
+    });
+}
+
+function joinGameSession() {
+    const nameInput = document.getElementById('player-name').value.trim();
+    if (!nameInput) return;
+    
+    myName = nameInput;
+    registered = true;
+    
+    document.getElementById('reg-box').style.display = "none";
+    document.getElementById('huge-buzzer-button').style.display = "block";
+    document.getElementById('status-msg').innerText = "Buzzer Armed";
+    
+    if (hostConn && hostConn.open) {
+        hostConn.send({ type: 'CONTESTANT_JOINED', id: playerId, name: myName });
     }
+}
 
-    function setupConnectionListeners(conn) {
-        conn.on('data', (data) => {
-            handleIncomingMessage(data);
-        });
-        conn.on('close', () => {
-            document.getElementById('status-msg').innerText = "Reconnecting to host...";
-            setTimeout(tryToConnectToSystem, 2000);
-        });
+function sendBuzz() {
+    if (hostConn && hostConn.open) {
+        hostConn.send({ type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
     }
+}
 
-    function joinGameSession() {
-        const nameInput = document.getElementById('player-name').value.trim();
-        if (!nameInput) return;
-        
-        myName = nameInput;
-        registered = true;
-        
-        document.getElementById('reg-box').style.display = "none";
-        document.getElementById('huge-buzzer-button').style.display = "block";
-        document.getElementById('status-msg').innerText = "Buzzer Armed";
-        
-        sendToSystem({ type: 'CONTESTANT_JOINED', id: playerId, name: myName });
-    }
+function handleIncomingMessage(msg) {
+    if (!registered) return;
+    const btn = document.getElementById('huge-buzzer-button');
+    const lbl = document.getElementById('status-msg');
 
-    function sendBuzz() {
-        sendToSystem({ type: 'PLAYER_BUZZ_SUBMIT', id: playerId, name: myName });
-    }
-
-    function sendToSystem(msg) {
-        if (hostConn && hostConn.open) hostConn.send(msg);
-        if (stageConn && stageConn.open) stageConn.send(msg);
-    }
-
-    function handleIncomingMessage(msg) {
-        if (!registered) return;
-        const btn = document.getElementById('huge-buzzer-button');
-        const lbl = document.getElementById('status-msg');
-
-        if (msg.type === 'BUZZERS_ARMED') {
-            if (msg.hasBuzzedList.includes(playerId)) {
-                btn.disabled = true; lbl.innerText = "LOCKED OUT"; lbl.style.color = "#ef4444";
-            } else {
-                btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
-            }
-        }
-        if (msg.type === 'BUZZERS_FROZEN') {
-            btn.disabled = true;
-            lbl.style.color = "#94a3b8";
-            lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
+    if (msg.type === 'BUZZERS_ARMED') {
+        if (msg.hasBuzzedList.includes(playerId)) {
+            btn.disabled = true; lbl.innerText = "LOCKED OUT"; lbl.style.color = "#ef4444";
+        } else {
+            btn.disabled = false; lbl.innerText = "GO!"; lbl.style.color = "#22c55e";
         }
     }
+    if (msg.type === 'BUZZERS_FROZEN') {
+        btn.disabled = true;
+        lbl.style.color = "#94a3b8";
+        lbl.innerText = (msg.winnerId === playerId) ? "YOU BUZZED!" : `${msg.winnerName} answering...`;
+    }
+}
 </script>
 </body>
 </html>
